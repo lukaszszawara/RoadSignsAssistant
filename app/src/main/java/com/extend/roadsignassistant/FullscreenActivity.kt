@@ -1,18 +1,23 @@
 package com.extend.roadsignassistant
 
+import android.Manifest
 import androidx.appcompat.app.AppCompatActivity
 import android.annotation.SuppressLint
-import android.os.Build
+import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.media.ThumbnailUtils
 import android.os.Bundle
 import android.os.Handler
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowInsets
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
-import com.camerakit.CameraKitView
-import com.extend.roadsignassistant.databinding.ActivityFullscreenBinding
+import android.util.DisplayMetrics
+import android.widget.*
+import androidx.core.app.ActivityCompat
+import com.priyankvasa.android.cameraviewex.CameraView
+import com.priyankvasa.android.cameraviewex.ErrorLevel
+import com.priyankvasa.android.cameraviewex.Image
+import com.priyankvasa.android.cameraviewex.Modes
+import rebus.permissionutils.PermissionEnum
+import rebus.permissionutils.PermissionManager
+import java.io.IOException
 
 /**
  * An example full-screen activity that shows and hides the system UI (i.e.
@@ -20,9 +25,18 @@ import com.extend.roadsignassistant.databinding.ActivityFullscreenBinding
  */
 class FullscreenActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityFullscreenBinding
-    private lateinit var photoButton: Button
-    private lateinit var cameraKitView: CameraKitView
+    private var gtsrbClassifier: GtsrbClassifier? = null
+    private lateinit var camera: CameraView
+
+
+    var ivPreview: ImageView? = null
+
+    var ivFinalPreview: ImageView? = null
+
+    var tvClassification: TextView? = null
+
+
+
     private val hideHandler = Handler()
 
     @SuppressLint("InlinedApi")
@@ -39,6 +53,50 @@ class FullscreenActivity : AppCompatActivity() {
     private val hideRunnable = Runnable { hide() }
 
 
+    override fun onResume() {
+        super.onResume()
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return
+        }
+        camera.start()
+    }
+
+    override fun onPause() {
+
+        camera.stop()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        camera.destroy()
+        super.onDestroy()
+    }
+
+    private fun loadGtsrbClassifier() {
+        try {
+            gtsrbClassifier =
+                GtsrbClassifier.classifier(assets, GtsrbModelConfig.MODEL_FILENAME)
+        } catch (e: IOException) {
+            Toast.makeText(
+                this,
+                "GTSRB model couldn't be loaded. Check logs for details.",
+                Toast.LENGTH_SHORT
+            ).show()
+            e.printStackTrace()
+        }
+    }
+
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,6 +107,24 @@ class FullscreenActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         isFullscreen = true
+        getPermission()
+        camera = findViewById(R.id.camera)
+        ivPreview = findViewById(R.id.ivPreview)
+        ivFinalPreview = findViewById(R.id.ivFinalPreview);
+        tvClassification = findViewById(R.id.tvClassification);
+
+
+        // Callbacks on UI thread
+        camera.addCameraOpenedListener { /* Camera opened. */ }
+            .addCameraErrorListener { t: Throwable, errorLevel: ErrorLevel -> /* Camera error! */ }
+            .addCameraClosedListener { /* Camera closed. */ }
+
+
+        loadGtsrbClassifier()
+
+        findViewById<Button>(R.id.photo_button).setOnClickListener{
+            onTakePhoto()
+        }
 
     }
 
@@ -58,6 +134,8 @@ class FullscreenActivity : AppCompatActivity() {
         // Trigger the initial hide() shortly after the activity has been
         // created, to briefly hint to the user that UI controls
         // are available.
+
+
         delayedHide(100)
     }
 
@@ -100,5 +178,64 @@ class FullscreenActivity : AppCompatActivity() {
          * and a change of the status and navigation bar.
          */
         private const val UI_ANIMATION_DELAY = 300
+    }
+
+
+
+
+    fun getPermission(){
+        PermissionManager.Builder()
+            .permission(
+                PermissionEnum.WRITE_EXTERNAL_STORAGE,
+                PermissionEnum.CAMERA,
+                PermissionEnum.READ_EXTERNAL_STORAGE)
+            .askAgain(false)
+            .ask(this)
+    }
+
+    fun onTakePhoto() {
+
+        // enable only single capture mode
+        camera.setCameraMode(Modes.CameraMode.SINGLE_CAPTURE)
+// OR keep other modes as is and enable single capture mode
+        camera.enableCameraMode(Modes.CameraMode.SINGLE_CAPTURE)
+// Output format is whatever set for [app:outputFormat] parameter
+// Callback on UI thread
+        camera.addPictureTakenListener { image: Image -> onImageCaptured(image)}
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return
+        }
+        camera.capture()
+// Disable single capture mode
+        //camera.disableCameraMode(Modes.CameraMode.SINGLE_CAPTURE)
+
+    }
+
+    private fun onImageCaptured(picture: Image) {
+        val bitmap = BitmapFactory.decodeByteArray(picture.data, 0, picture.data.size)
+        val squareBitmap =
+            ThumbnailUtils.extractThumbnail(bitmap, getScreenWidth(), getScreenWidth())
+        ivPreview?.setImageBitmap(squareBitmap)
+        val preprocessedImage = ImageUtils.prepareImageForClassification(squareBitmap)
+        ivFinalPreview?.setImageBitmap(preprocessedImage)
+        val recognitions: List<Classification> = gtsrbClassifier?.recognizeImage(preprocessedImage) as List<Classification>
+        tvClassification?.setText(recognitions.toString())
+    }
+
+    private fun getScreenWidth(): Int {
+        val displayMetrics = DisplayMetrics()
+        windowManager.defaultDisplay.getMetrics(displayMetrics)
+        return displayMetrics.widthPixels
     }
 }
