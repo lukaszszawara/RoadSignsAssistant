@@ -18,16 +18,20 @@ import com.priyankvasa.android.cameraviewex.Modes
 import rebus.permissionutils.PermissionEnum
 import rebus.permissionutils.PermissionManager
 import java.io.IOException
+import android.speech.tts.TextToSpeech
+import android.util.Log
+import java.util.*
+
 
 /**
  * An example full-screen activity that shows and hides the system UI (i.e.
  * status bar and navigation/system bar) with user interaction.
  */
-class FullscreenActivity : AppCompatActivity() {
+class FullscreenActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private var gtsrbClassifier: GtsrbClassifier? = null
     private lateinit var camera: CameraView
-
+    var tts: TextToSpeech? = null
 
     var ivPreview: ImageView? = null
 
@@ -112,7 +116,7 @@ class FullscreenActivity : AppCompatActivity() {
         ivPreview = findViewById(R.id.ivPreview)
         ivFinalPreview = findViewById(R.id.ivFinalPreview);
         tvClassification = findViewById(R.id.tvClassification);
-
+        tts  = TextToSpeech(this, this)
 
         // Callbacks on UI thread
         camera.addCameraOpenedListener { /* Camera opened. */ }
@@ -231,11 +235,28 @@ class FullscreenActivity : AppCompatActivity() {
         ivFinalPreview?.setImageBitmap(preprocessedImage)
         val recognitions: List<Classification> = gtsrbClassifier?.recognizeImage(preprocessedImage) as List<Classification>
         tvClassification?.setText(recognitions.toString())
+
+        say(recognitions.toString().replace("_"," "))
     }
 
     private fun getScreenWidth(): Int {
         val displayMetrics = DisplayMetrics()
         windowManager.defaultDisplay.getMetrics(displayMetrics)
         return displayMetrics.widthPixels
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts?.setLanguage(Locale.US);
+            // try it!
+            say("Can you hear this sentence?");
+            // If you want to another "say", check this log.
+            // Your voice will say after you see this log at logcat.
+            Log.i("TAG", "TextToSpeech instance initialization is finished.");
+        }
+    }
+
+    private fun say(s: String) {
+        tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null);
     }
 }
