@@ -247,9 +247,13 @@ class FullscreenActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            tts?.setLanguage(Locale.US);
+            for (locale in tts!!.availableLanguages)
+            {
+                if (locale.language == "pl")
+                    tts!!.setLanguage(locale);
+            }
             // try it!
-            say("Can you hear this sentence?");
+            say("test języka polskiego");
             // If you want to another "say", check this log.
             // Your voice will say after you see this log at logcat.
             Log.i("TAG", "TextToSpeech instance initialization is finished.");
